@@ -1,3 +1,5 @@
+use std::collections::HashMap;
+
 use bitcode::{Decode, Encode};
 
 use crate::cf_types::{CfRule, Cfvo};
@@ -5,7 +7,8 @@ use crate::constants::{LAST_COLUMN, LAST_ROW};
 use crate::cut_paste::cf_sqref_anchor;
 use crate::expressions::parser::displace::{displaced_node, Displacement};
 use crate::expressions::parser::static_analysis::{run_static_analysis_on_node, StaticResult};
-use crate::expressions::parser::stringify::{to_string_displaced, DisplaceData};
+use crate::expressions::parser::stringify::{to_english_string, to_string_displaced, DisplaceData};
+use crate::expressions::parser::Node;
 use crate::expressions::parser::Parser as ExprParser;
 use crate::expressions::types::CellReferenceRC;
 use crate::expressions::utils;
@@ -536,6 +539,82 @@ impl<'a> Model<'a> {
         Ok(())
     }
 
+    /// Moves the references of defined names with the cells they point to, so
+    /// that a name keeps naming the same cells when rows or columns are
+    /// inserted, deleted or moved before or around them.
+    ///
+    /// Undo of a delete inserts the lines again and gives cells back their old
+    /// formulas, but not names. So a delete only changes a name when inserting
+    /// the same lines again gives the name back exactly (the name is before or
+    /// after the deleted lines); a name that reaches into them is left as it is.
+    fn displace_defined_names(&mut self, displace_data: &DisplaceData) {
+        let inverse = match displace_data {
+            DisplaceData::Row { sheet, row, delta } if *delta < 0 => Some(DisplaceData::Row {
+                sheet: *sheet,
+                row: *row,
+                delta: -*delta,
+            }),
+            DisplaceData::Column {
+                sheet,
+                column,
+                delta,
+            } if *delta < 0 => Some(DisplaceData::Column {
+                sheet: *sheet,
+                column: *column,
+                delta: -*delta,
+            }),
+            _ => None,
+        };
+        let mut changed = false;
+        for index in 0..self.workbook.defined_names.len() {
+            let scope = self.scope_of(self.workbook.defined_names[index].sheet_id);
+            let context = self.name_context(scope);
+            let formula = self.workbook.defined_names[index].formula.clone();
+            let had_equals = formula.starts_with('=');
+            let node =
+                self.parse_internal_formula(formula.strip_prefix('=').unwrap_or(&formula), &context);
+            if let Node::ParseErrorKind { .. } = node {
+                continue;
+            }
+            let anchor = (context.row, context.column);
+            let Some(moved) = displaced_node(
+                &node,
+                &Displacement {
+                    data: displace_data,
+                    from: anchor,
+                    to: anchor,
+                },
+            ) else {
+                continue;
+            };
+            if let Some(inverse) = &inverse {
+                let back = displaced_node(
+                    &moved,
+                    &Displacement {
+                        data: inverse,
+                        from: anchor,
+                        to: anchor,
+                    },
+                )
+                .unwrap_or_else(|| moved.clone());
+                if to_english_string(&back, &context) != to_english_string(&node, &context) {
+                    continue;
+                }
+            }
+            let text = to_english_string(&moved, &context);
+            self.workbook.defined_names[index].formula = if had_equals {
+                format!("={text}")
+            } else {
+                text
+            };
+            changed = true;
+        }
+        if changed {
+            self.parsed_defined_names = HashMap::new();
+            self.parse_defined_names();
+        }
+    }
+
     /// Updates the `range` field and formula fields of every CF rule on `sheet` according to `displace_data`.
     fn displace_cf_ranges(&mut self, sheet: u32, displace_data: &DisplaceData) {
         let Some(worksheet) = self.workbook.worksheets.get(sheet as usize) else {
@@ -815,6 +894,7 @@ impl<'a> Model<'a> {
             },
         )?;
         self.displace_cf_ranges(sheet, &disp);
+        self.displace_defined_names(&disp);
 
         // In the list of columns:
         // * Keep all the columns to the left
@@ -948,6 +1028,7 @@ impl<'a> Model<'a> {
             },
         )?;
         self.displace_cf_ranges(sheet, &disp);
+        self.displace_defined_names(&disp);
         let worksheet = &mut self.workbook.worksheet_mut(sheet)?;
 
         // deletes all the column styles
@@ -1200,6 +1281,7 @@ impl<'a> Model<'a> {
             },
         )?;
         self.displace_cf_ranges(sheet, &disp);
+        self.displace_defined_names(&disp);
 
         Ok(())
     }
@@ -1309,6 +1391,7 @@ impl<'a> Model<'a> {
             },
         )?;
         self.displace_cf_ranges(sheet, &disp);
+        self.displace_defined_names(&disp);
         Ok(displaced)
     }
 
@@ -1466,6 +1549,7 @@ impl<'a> Model<'a> {
         };
         self.displace_formulas(&disp, CellsMoved::None)?;
         self.displace_cf_ranges(sheet, &disp);
+        self.displace_defined_names(&disp);
         Ok(())
     }
 
@@ -1613,6 +1697,7 @@ impl<'a> Model<'a> {
         let disp = DisplaceData::RowMove { sheet, row, delta };
         self.displace_formulas(&disp, CellsMoved::None)?;
         self.displace_cf_ranges(sheet, &disp);
+        self.displace_defined_names(&disp);
         Ok(())
     }
 
