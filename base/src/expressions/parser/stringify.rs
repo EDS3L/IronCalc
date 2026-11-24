@@ -791,48 +791,41 @@ fn stringify(
                 language
             )
         ),
-        OpConcatenateKind { left, right } => format!(
-            "{}&{}",
-            stringify(
-                left,
-                context,
-                displace_data,
-                export_to_excel,
-                locale,
-                language
-            ),
-            stringify(
-                right,
-                context,
-                displace_data,
-                export_to_excel,
-                locale,
-                language
+        OpConcatenateKind { left, right } => {
+            // A comparison binds weaker than `&`: `"a"&(1<2)` keeps its parentheses.
+            let left_str = stringify(left, context, displace_data, export_to_excel, locale, language);
+            let right_str = stringify(right, context, displace_data, export_to_excel, locale, language);
+            format!(
+                "{}&{}",
+                if matches!(**left, CompareKind { .. }) {
+                    format!("({left_str})")
+                } else {
+                    left_str
+                },
+                if matches!(**right, CompareKind { .. }) {
+                    format!("({right_str})")
+                } else {
+                    right_str
+                }
             )
-        ),
-        CompareKind { kind, left, right } => format!(
-            "{}{}{}",
-            stringify(
-                left,
-                context,
-                displace_data,
-                export_to_excel,
-                locale,
-                language
-            ),
-            kind,
-            stringify(
-                right,
-                context,
-                displace_data,
-                export_to_excel,
-                locale,
-                language
+        }
+        CompareKind { kind, left, right } => {
+            // Comparisons are left-associative: `1=(2<3)` needs its parentheses.
+            let right_str = stringify(right, context, displace_data, export_to_excel, locale, language);
+            format!(
+                "{}{}{}",
+                stringify(left, context, displace_data, export_to_excel, locale, language),
+                kind,
+                if matches!(**right, CompareKind { .. }) {
+                    format!("({right_str})")
+                } else {
+                    right_str
+                }
             )
-        ),
+        }
         OpSumKind { kind, left, right } => {
             // CompareKind has lower precedence than +/-, so wrap it to preserve semantics
-            let left_str = if matches!(**left, CompareKind { .. }) {
+            let left_str = if matches!(**left, CompareKind { .. } | OpConcatenateKind { .. }) {
                 format!(
                     "({})",
                     stringify(
@@ -856,7 +849,7 @@ fn stringify(
             };
             // if kind is minus then we need parentheses in the right side if they are OpSumKind or CompareKind
             let right_str = if (matches!(kind, OpSum::Minus) && matches!(**right, OpSumKind { .. }))
-                | matches!(**right, CompareKind { .. })
+                | matches!(**right, CompareKind { .. } | OpConcatenateKind { .. })
             {
                 format!(
                     "({})",
@@ -884,7 +877,7 @@ fn stringify(
         }
         OpProductKind { kind, left, right } => {
             let x = match **left {
-                OpSumKind { .. } | CompareKind { .. } => format!(
+                OpSumKind { .. } | CompareKind { .. } | OpConcatenateKind { .. } => format!(
                     "({})",
                     stringify(
                         left,
@@ -905,7 +898,10 @@ fn stringify(
                 ),
             };
             let y = match **right {
-                OpSumKind { .. } | CompareKind { .. } | OpProductKind { .. } => format!(
+                OpSumKind { .. }
+                | CompareKind { .. }
+                | OpProductKind { .. }
+                | OpConcatenateKind { .. } => format!(
                     "({})",
                     stringify(
                         right,
