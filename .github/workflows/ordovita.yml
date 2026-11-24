@@ -1,0 +1,60 @@
+name: Ordovita fork
+
+# Builds and checks the Ordovita branches of the fork: the engine's own tests,
+# a comparison with the upstream release on lookup-heavy sheets (time and
+# identical results), and the web build used by the Ordovita app.
+
+on:
+  push:
+    branches: ["ordovita/**"]
+  workflow_dispatch:
+
+env:
+  CARGO_TERM_COLOR: always
+  BASE_TAG: v0.9.1
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v6
+      - name: Rust Cache
+        uses: Swatinem/rust-cache@v2
+      - name: Engine tests
+        run: cargo test -p ironcalc_base
+
+  bench:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+      - name: Rust Cache
+        uses: Swatinem/rust-cache@v2
+      - name: Install wasm-pack
+        run: |
+          rustup target add wasm32-unknown-unknown
+          curl https://rustwasm.github.io/wasm-pack/installer/init.sh -sSf | sh
+      - name: Build this branch (nodejs and web)
+        working-directory: bindings/wasm
+        run: |
+          wasm-pack build --release --target nodejs --out-dir /tmp/after-node
+          wasm-pack build --release --target web --out-dir /tmp/after-web
+      - name: Build the upstream release
+        run: |
+          git worktree add /tmp/base "$BASE_TAG"
+          cd /tmp/base/bindings/wasm
+          wasm-pack build --release --target nodejs --out-dir /tmp/before-node
+      - uses: actions/setup-node@v6
+        with:
+          node-version: "22"
+      - name: Compare
+        run: node ci/ordovita-bench.mjs /tmp/before-node /tmp/after-node | tee -a "$GITHUB_STEP_SUMMARY"
+      - name: Web build for the app
+        uses: actions/upload-artifact@v4
+        with:
+          name: ironcalc-wasm-web
+          path: /tmp/after-web
+          retention-days: 14

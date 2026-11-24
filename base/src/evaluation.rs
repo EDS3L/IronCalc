@@ -46,6 +46,7 @@ use crate::calc_result::CalcResult;
 use crate::constants::{LAST_COLUMN, LAST_ROW};
 use crate::expressions::token::Error;
 use crate::expressions::types::CellReferenceIndex;
+use crate::functions::lookup_index::{ExactIndex, LookupIndexKey};
 use crate::model::Model;
 use crate::types::{ArrayKind, Cell, Worksheet};
 
@@ -398,6 +399,9 @@ pub(crate) struct Evaluation {
     /// Set when the current pass must be abandoned. Every evaluation in
     /// progress then returns without storing anything.
     pub(crate) restart: Option<Restart>,
+    /// Exact-match indexes of the ranges searched in the current pass
+    /// (`functions::lookup_index`). Dropped with the pass.
+    pub(crate) lookup_indexes: HashMap<LookupIndexKey, Arc<ExactIndex>>,
     /// True while `evaluate()` is running a pass. Outside a pass (conditional
     /// formatting at load time, formula helpers) there is no driver to restart
     /// anything, so cells are simply evaluated on demand.
@@ -464,6 +468,7 @@ impl Default for Evaluation {
             seen: HashMap::default(),
             seen_ranges: Vec::new(),
             restart: None,
+            lookup_indexes: HashMap::new(),
             in_pass: false,
             restarts_in_last_evaluation: 0,
             depth: 0,
@@ -691,6 +696,7 @@ impl<'a> Model<'a> {
         state.stack.clear();
         state.seen.clear();
         state.seen_ranges.clear();
+        state.lookup_indexes.clear();
         state.restart = None;
         state.depth = 0;
         state.unwinding = false;
@@ -1064,16 +1070,24 @@ impl<'a> Model<'a> {
         if !whole_rows && !whole_columns {
             return Ok((row2, column2));
         }
-        let dimension = self
+        let worksheet = self
             .workbook
             .worksheet(sheet)
-            .map_err(|_| format!("Invalid worksheet index: '{sheet}'"))?
-            .dimension();
-        let last_row = if whole_rows { dimension.max_row } else { row2 };
-        let last_column = if whole_columns {
-            dimension.max_column
+            .map_err(|_| format!("Invalid worksheet index: '{sheet}'"))?;
+        // A whole-column range (`A:B`) only needs the last row of the sheet,
+        // which the row storage knows without visiting every cell; the full
+        // dimension is computed only for whole-row ranges.
+        let (last_row, last_column) = if whole_rows && !whole_columns {
+            (worksheet.sheet_data.last_row().unwrap_or(1), column2)
         } else {
-            column2
+            let dimension = worksheet.dimension();
+            let last_row = if whole_rows { dimension.max_row } else { row2 };
+            let last_column = if whole_columns {
+                dimension.max_column
+            } else {
+                column2
+            };
+            (last_row, last_column)
         };
         // The remainder: the rows below the used area over the whole width,
         // and the columns beyond it within the rows that are walked.

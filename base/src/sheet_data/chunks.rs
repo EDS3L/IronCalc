@@ -134,6 +134,19 @@ impl SheetData {
     }
 
     /// True if the sheet has no rows.
+    /// The last row that exists, if any. Finds the last allocated chunk and
+    /// looks at it from the bottom, instead of visiting every cell.
+    pub fn last_row(&self) -> Option<i32> {
+        for (index, chunk) in self.chunks.iter().enumerate().rev() {
+            if let Some(chunk) = chunk {
+                if let Some(offset) = chunk.rows.iter().rposition(|row| row.is_some()) {
+                    return Some(((index << CHUNK_BITS) | offset) as i32);
+                }
+            }
+        }
+        None
+    }
+
     pub fn is_empty(&self) -> bool {
         self.row_count == 0
     }
