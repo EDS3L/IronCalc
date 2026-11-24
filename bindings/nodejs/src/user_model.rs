@@ -8,8 +8,8 @@ use ironcalc::{
     types::{Link, Style, StyleIncludes, Theme},
     BorderArea, ClipboardData, UserModel as BaseModel,
   },
-  export::{save_to_icalc, save_to_xlsx},
-  import::{load_from_icalc, load_from_xlsx},
+  export::{save_to_icalc, save_to_xlsx, save_xlsx_to_writer},
+  import::{load_from_icalc, load_from_xlsx, load_from_xlsx_bytes},
 };
 
 use crate::{area, js_to_color, leak_str, to_js_error, CellType, DefinedName, FmtSettings};
@@ -18,6 +18,14 @@ use crate::{area, js_to_color, leak_str, to_js_error, CellType, DefinedName, Fmt
 struct NamedStyleEntry {
   name: String,
   style: Style,
+}
+
+#[derive(Serialize)]
+#[serde(untagged)]
+enum JsCellValue {
+  Number(f64),
+  Text(String),
+  Boolean(bool),
 }
 
 /// A workbook model implementing the "user" API: the same high level API used
@@ -72,6 +80,25 @@ impl UserModel {
     })
   }
 
+  /// Creates a user model from the bytes of an xlsx file
+  #[napi(factory)]
+  pub fn from_xlsx_bytes(
+    bytes: &[u8],
+    name: String,
+    locale: Option<String>,
+    timezone: Option<String>,
+    language_id: Option<String>,
+  ) -> Result<UserModel> {
+    let locale = locale.unwrap_or_else(|| "en".to_string());
+    let timezone = timezone.unwrap_or_else(|| "UTC".to_string());
+    let language_id = leak_str(&language_id.unwrap_or_else(|| "en".to_string()));
+    let workbook = load_from_xlsx_bytes(bytes, &name, &locale, &timezone).map_err(to_js_error)?;
+    let model = ironcalc::base::Model::from_workbook(workbook, language_id).map_err(to_js_error)?;
+    Ok(UserModel {
+      model: BaseModel::from_model(model),
+    })
+  }
+
   /// Creates a user model from an icalc file
   #[napi(factory)]
   pub fn from_icalc(file_name: String, language_id: Option<String>) -> Result<UserModel> {
@@ -89,6 +116,14 @@ impl UserModel {
   pub fn save_to_xlsx(&self, file: String) -> Result<()> {
     let model = self.model.get_model();
     save_to_xlsx(model, &file).map_err(to_js_error)
+  }
+
+  /// Returns the workbook as the bytes of an xlsx file
+  #[napi]
+  pub fn to_xlsx_bytes(&self) -> Result<Uint8Array> {
+    let writer = std::io::Cursor::new(Vec::new());
+    let writer = save_xlsx_to_writer(self.model.get_model(), writer).map_err(to_js_error)?;
+    Ok(Uint8Array::new(writer.into_inner()))
   }
 
   /// Saves the workbook to a file in the internal binary ic format
@@ -289,6 +324,30 @@ impl UserModel {
       .model
       .get_formatted_cell_value(sheet, row, column)
       .map_err(to_js_error)
+  }
+
+  /// Returns the unformatted value of a cell: a number, a string (also for
+  /// errors), a boolean, or null for an empty cell
+  #[napi(ts_return_type = "number | string | boolean | null")]
+  pub fn get_cell_value<'e>(
+    &self,
+    env: &'e Env,
+    sheet: u32,
+    row: i32,
+    column: i32,
+  ) -> Result<Unknown<'e>> {
+    use ironcalc::base::cell::CellValue;
+    let value = self
+      .model
+      .get_cell_value(sheet, row, column)
+      .map_err(to_js_error)?;
+    let value = match value {
+      CellValue::None => None,
+      CellValue::String(text) => Some(JsCellValue::Text(text)),
+      CellValue::Number(number) => Some(JsCellValue::Number(number)),
+      CellValue::Boolean(flag) => Some(JsCellValue::Boolean(flag)),
+    };
+    env.to_js_value(&value).map_err(to_js_error)
   }
 
   /// Returns the type of the content of a cell

@@ -614,10 +614,14 @@ export declare class UserModel {
   static fromBytes(bytes: Uint8Array, languageId?: string | undefined | null): UserModel
   /** Creates a user model from an xlsx file */
   static fromXlsx(filePath: string, locale?: string | undefined | null, timezone?: string | undefined | null, languageId?: string | undefined | null): UserModel
+  /** Creates a user model from the bytes of an xlsx file */
+  static fromXlsxBytes(bytes: Uint8Array, name: string, locale?: string | undefined | null, timezone?: string | undefined | null, languageId?: string | undefined | null): UserModel
   /** Creates a user model from an icalc file */
   static fromIcalc(fileName: string, languageId?: string | undefined | null): UserModel
   /** Saves the workbook to an xlsx file */
   saveToXlsx(file: string): void
+  /** Returns the workbook as the bytes of an xlsx file */
+  toXlsxBytes(): Uint8Array
   /** Saves the workbook to a file in the internal binary ic format */
   saveToIcalc(file: string): void
   /** Returns the workbook as bytes in the internal binary ic format */
@@ -668,6 +672,11 @@ export declare class UserModel {
   getCellContent(sheet: number, row: number, column: number): string
   /** Returns the formatted value of a cell (i.e. "$ 5.75") */
   getFormattedCellValue(sheet: number, row: number, column: number): string
+  /**
+   * Returns the unformatted value of a cell: a number, a string (also for
+   * errors), a boolean, or null for an empty cell
+   */
+  getCellValue(sheet: number, row: number, column: number): number | string | boolean | null
   /** Returns the type of the content of a cell */
   getCellType(sheet: number, row: number, column: number): CellType
   /** Returns information about the array (spill) structure of a cell */

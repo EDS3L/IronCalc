@@ -235,3 +235,25 @@ test('cell link label and style are one undo step', (t) => {
     tooltip: null,
   });
 });
+
+test('xlsx round trip in memory and unformatted values', (t) => {
+  const model = new UserModel("Workbook1");
+  model.setUserInput(0, 1, 1, "15.375");
+  model.setUserInput(0, 2, 1, "=A1*2");
+  model.setUserInput(0, 3, 1, "hello");
+  model.setUserInput(0, 4, 1, "TRUE");
+  t.is(model.getCellValue(0, 1, 1), 15.375);
+  t.is(model.getCellValue(0, 2, 1), 30.75);
+  t.is(model.getCellValue(0, 3, 1), "hello");
+  t.is(model.getCellValue(0, 4, 1), true);
+  t.is(model.getCellValue(0, 9, 9), null);
+
+  const xlsx = model.toXlsxBytes();
+  t.true(xlsx.length > 0);
+  const imported = UserModel.fromXlsxBytes(xlsx, "Imported");
+  t.is(imported.getCellContent(0, 2, 1), "=A1*2");
+  t.is(imported.getCellValue(0, 2, 1), 30.75);
+
+  const restored = UserModel.fromBytes(imported.toBytes());
+  t.is(restored.getFormattedCellValue(0, 3, 1), "hello");
+});
