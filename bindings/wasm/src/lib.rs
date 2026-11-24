@@ -526,6 +526,23 @@ impl Model {
             .map_err(to_js_error)
     }
 
+    /// Unformatted value of a cell: a number, a string (also for errors), a
+    /// boolean, or null for an empty cell.
+    #[wasm_bindgen(js_name = "getCellValue", unchecked_return_type = "number | string | boolean | null")]
+    pub fn get_cell_value(&self, sheet: u32, row: i32, column: i32) -> Result<JsValue, JsError> {
+        use ironcalc_base::cell::CellValue;
+        let value = self
+            .model
+            .get_cell_value(sheet, row, column)
+            .map_err(to_js_error)?;
+        Ok(match value {
+            CellValue::None => JsValue::NULL,
+            CellValue::String(text) => JsValue::from_str(&text),
+            CellValue::Number(number) => JsValue::from_f64(number),
+            CellValue::Boolean(flag) => JsValue::from_bool(flag),
+        })
+    }
+
     #[wasm_bindgen(js_name = "getFrozenRowsCount")]
     pub fn get_frozen_rows_count(&self, sheet: u32) -> Result<i32, JsError> {
         self.model.get_frozen_rows_count(sheet).map_err(to_js_error)

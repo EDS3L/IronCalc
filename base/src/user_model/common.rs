@@ -591,6 +591,19 @@ impl<'a> UserModel<'a> {
         self.model.get_formatted_cell_value(sheet, row, column)
     }
 
+    /// Returns the value of a cell (the result for a formula), unformatted
+    ///
+    /// See also:
+    /// * [Model::get_cell_value_by_index]
+    pub fn get_cell_value(
+        &self,
+        sheet: u32,
+        row: i32,
+        column: i32,
+    ) -> Result<crate::cell::CellValue, String> {
+        self.model.get_cell_value_by_index(sheet, row, column)
+    }
+
     /// Returns the type of the cell
     ///
     /// See also
