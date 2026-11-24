@@ -50,9 +50,17 @@ jobs:
       - uses: actions/setup-node@v6
         with:
           node-version: "22"
+      - name: Node build for local benchmarks
+        uses: actions/upload-artifact@v4
+        with:
+          name: ironcalc-wasm-node
+          path: /tmp/after-node
+          retention-days: 14
       - name: Compare
+        timeout-minutes: 20
         run: node ci/ordovita-bench.mjs /tmp/before-node /tmp/after-node | tee -a "$GITHUB_STEP_SUMMARY"
       - name: Web build for the app
+        if: always()
         uses: actions/upload-artifact@v4
         with:
           name: ironcalc-wasm-web

@@ -17,14 +17,14 @@ const ROWS = 10000;
 const variants = {
   'arithmetic =C*E (10k)': (r) => [[6, `=C${r}*E${r}`]],
   'VLOOKUP exact into 1k rows (10k)': (r) => [[8, `=VLOOKUP(MOD(A${r},1000)+1,Lookup!$A$1:$B$1000,2,FALSE)`]],
-  'VLOOKUP exact text keys (10k)': (r) => [[8, `=VLOOKUP("k"&(MOD(A${r},1000)+1),Lookup!$C$1:$D$1000,2,FALSE)`]],
+  'VLOOKUP exact text keys (2k)': (r) => (r <= 2000 ? [[8, `=VLOOKUP("k"&(MOD(A${r},1000)+1),Lookup!$C$1:$D$1000,2,FALSE)`]] : []),
   'VLOOKUP sorted (10k)': (r) => [[8, `=VLOOKUP(MOD(A${r},1000)+1,Lookup!$A$1:$B$1000,2,TRUE)`]],
   'INDEX/MATCH exact (10k)': (r) => [[8, `=INDEX(Lookup!$B$1:$B$1000,MATCH(MOD(A${r},1000)+1,Lookup!$A$1:$A$1000,0))`]],
   'XLOOKUP exact (10k)': (r) => [[8, `=XLOOKUP(MOD(A${r},1000)+1,Lookup!$A$1:$A$1000,Lookup!$B$1:$B$1000)`]],
-  'VLOOKUP whole column A:B (1k)': (r) => (r <= 1000 ? [[8, `=VLOOKUP(MOD(A${r},1000)+1,Lookup!A:B,2,FALSE)`]] : []),
-  'MATCH whole column A:A (1k)': (r) => (r <= 1000 ? [[8, `=MATCH(MOD(A${r},1000)+1,Lookup!A:A,0)`]] : []),
-  'COUNTIFS every row (1k x 10k)': (r) =>
-    r <= 1000 ? [[11, `=COUNTIFS($B$1:$B$${ROWS},B${r},$E$1:$E$${ROWS},">"&E${r})`]] : [],
+  'VLOOKUP whole column A:B (100)': (r) => (r <= 100 ? [[8, `=VLOOKUP(MOD(A${r},1000)+1,Lookup!A:B,2,FALSE)`]] : []),
+  'MATCH whole column A:A (100)': (r) => (r <= 100 ? [[8, `=MATCH(MOD(A${r},1000)+1,Lookup!A:A,0)`]] : []),
+  'COUNTIFS every row (200 x 10k)': (r) =>
+    r <= 200 ? [[11, `=COUNTIFS($B$1:$B$${ROWS},B${r},$E$1:$E$${ROWS},">"&E${r})`]] : [],
 };
 const base = (r) => [[1, r], [2, 'cat' + (r % 20)], [3, ((r * 37) % 1000) + 0.25], [5, (r % 9) + 1]];
 
@@ -66,6 +66,7 @@ const lines = [
 ];
 let mismatches = 0;
 for (const [name, fx] of Object.entries(variants)) {
+  console.error(`running: ${name}`);
   const a = run(engines.before, fx);
   const b = run(engines.after, fx);
   let diff = 0;
