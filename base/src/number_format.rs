@@ -226,6 +226,97 @@ pub fn to_excel_precision(value: f64, precision: usize) -> f64 {
     s.parse::<f64>().unwrap_or(value)
 }
 
+/// `value` rounded to `precision` significant digits the way Excel shows it:
+/// first read as the decimal number of 15 significant digits Excel works with,
+/// then rounded half away from zero on those digits (2.5 -> 3, 0.125 -> 0.13
+/// at 2 decimals, 1.005 -> 1.01). Formatting with `{:.*e}` alone rounds the
+/// binary value half to even, which shows 2.5 as 2.
+pub(crate) fn round_significant_half_away(value: f64, precision: usize) -> f64 {
+    let keep = precision.max(1);
+    if keep >= 15 {
+        // Beyond the digits Excel keeps there is nothing to round half away.
+        return format!("{:.*e}", keep - 1, value)
+            .parse::<f64>()
+            .unwrap_or(value);
+    }
+    let fifteen = format!("{:.14e}", value);
+    let Some((mantissa, exponent)) = fifteen.split_once('e') else {
+        return value;
+    };
+    let Ok(mut exponent) = exponent.parse::<i32>() else {
+        return value;
+    };
+    let negative = mantissa.starts_with('-');
+    let digits: Vec<u8> = mantissa
+        .bytes()
+        .filter(u8::is_ascii_digit)
+        .map(|d| d - b'0')
+        .collect();
+    if digits.len() <= keep {
+        return value;
+    }
+    let mut kept = digits[..keep].to_vec();
+    if digits[keep] >= 5 {
+        let mut carry = true;
+        for digit in kept.iter_mut().rev() {
+            if *digit == 9 {
+                *digit = 0;
+            } else {
+                *digit += 1;
+                carry = false;
+                break;
+            }
+        }
+        if carry {
+            kept.insert(0, 1);
+            kept.pop();
+            exponent += 1;
+        }
+    }
+    let mut text = String::with_capacity(keep + 8);
+    if negative {
+        text.push('-');
+    }
+    text.push((b'0' + kept[0]) as char);
+    if keep > 1 {
+        text.push('.');
+        for digit in &kept[1..] {
+            text.push((b'0' + digit) as char);
+        }
+    }
+    text.push('e');
+    text.push_str(&exponent.to_string());
+    text.parse::<f64>().unwrap_or(value)
+}
+
+/// `value` rounded to `decimals` digits after the decimal point, half away
+/// from zero on its 15 significant digits (see `round_significant_half_away`).
+pub(crate) fn round_decimals_half_away(value: f64, decimals: i32) -> f64 {
+    if !value.is_finite() || value == 0.0 {
+        return value;
+    }
+    let fifteen = format!("{:.14e}", value);
+    let exponent: i32 = fifteen
+        .split_once('e')
+        .and_then(|(_, exponent)| exponent.parse().ok())
+        .unwrap_or(0);
+    let significant = decimals + exponent + 1;
+    if significant >= 15 {
+        return value;
+    }
+    if significant <= 0 {
+        if significant == 0 {
+            let first = fifteen.trim_start_matches('-').as_bytes()[0] - b'0';
+            if first >= 5 {
+                let unit = 10.0_f64.powi(-decimals);
+                return if value < 0.0 { -unit } else { unit };
+            }
+        }
+        return 0.0;
+    }
+    round_significant_half_away(value, significant as usize)
+}
+
 pub fn to_precision_str(value: f64, precision: usize) -> String {
     if !value.is_finite() {
         if value.is_infinite() {
@@ -235,8 +326,7 @@ pub fn to_precision_str(value: f64, precision: usize) -> String {
         }
     }
 
-    let s = format!("{:.*e}", precision.saturating_sub(1), value);
-    let parsed = s.parse::<f64>().unwrap_or(value);
+    let parsed = round_significant_half_away(value, precision);
 
     // I would love to use the std library. There is not a speed concern here
     // problem is it doesn't do the right thing
