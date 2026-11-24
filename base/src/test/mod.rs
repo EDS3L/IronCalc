@@ -155,5 +155,6 @@ mod test_spill_functions;
 mod test_today;
 mod test_trigonometric_reciprocals;
 mod test_types;
+mod test_names_constants_and_moves;
 mod text_functions;
 mod user_model;

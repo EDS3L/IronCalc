@@ -105,6 +105,9 @@ pub(crate) enum ParsedDefinedName {
     RangeReference(Range),
     /// `=LAMBDA(params..., body)`
     LambdaDefinition(Vec<NamedVariable>, Node),
+    /// Any other formula, a constant included (`=0.23`, `=A1*2`): evaluated
+    /// where the name is used.
+    Formula(Node),
     /// `=SomethingElse`
     InvalidDefinedNameFormula,
 }
@@ -404,6 +407,7 @@ impl<'a> Model<'a> {
                             };
                         }
                         ParsedDefinedName::LambdaDefinition(..)
+                        | ParsedDefinedName::Formula(..)
                         | ParsedDefinedName::InvalidDefinedNameFormula => {}
                     }
                 }
@@ -815,6 +819,22 @@ impl<'a> Model<'a> {
                             let lambda_id = self.get_next_lambda_id();
                             self.lambdas.insert(lambda_id, (param_names, body));
                             CalcResult::Lambda(lambda_id)
+                        }
+                        ParsedDefinedName::Formula(formula) => {
+                            // A name whose formula reads itself, directly or through
+                            // other names, would recurse forever.
+                            let key = (*scope, name.to_lowercase());
+                            if self.evaluation.names_in_progress.contains(&key) {
+                                return CalcResult::new_error(
+                                    Error::CIRC,
+                                    cell,
+                                    format!("Defined name \"{name}\" refers to itself."),
+                                );
+                            }
+                            self.evaluation.names_in_progress.push(key);
+                            let result = self.evaluate_node_in_context(&formula, cell);
+                            self.evaluation.names_in_progress.pop();
+                            result
                         }
                         ParsedDefinedName::InvalidDefinedNameFormula => CalcResult::new_error(
                             Error::NAME,
@@ -3671,7 +3691,7 @@ impl<'a> Model<'a> {
             if let Node::ParseErrorKind { .. } = node {
                 node = self.parse_internal_formula(formula_body, &dummy_ref);
             }
-            if !matches!(node, Node::LambdaDefKind { .. }) {
+            if matches!(node, Node::ParseErrorKind { .. }) {
                 return Err("Formula: Invalid defined name formula".to_string());
             }
         }

@@ -402,6 +402,8 @@ pub(crate) struct Evaluation {
     /// Exact-match indexes of the ranges searched in the current pass
     /// (`functions::lookup_index`). Dropped with the pass.
     pub(crate) lookup_indexes: HashMap<LookupIndexKey, Arc<ExactIndex>>,
+    /// Defined names whose formula is being evaluated, innermost last.
+    pub(crate) names_in_progress: Vec<(Option<u32>, String)>,
     /// True while `evaluate()` is running a pass. Outside a pass (conditional
     /// formatting at load time, formula helpers) there is no driver to restart
     /// anything, so cells are simply evaluated on demand.
@@ -469,6 +471,7 @@ impl Default for Evaluation {
             seen_ranges: Vec::new(),
             restart: None,
             lookup_indexes: HashMap::new(),
+            names_in_progress: Vec::new(),
             in_pass: false,
             restarts_in_last_evaluation: 0,
             depth: 0,

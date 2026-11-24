@@ -1,9 +1,12 @@
+use std::collections::HashMap;
+
 use crate::cf_types::{CfRule, Cfvo};
 use crate::constants::{LAST_COLUMN, LAST_ROW};
 use crate::cut_paste::cf_sqref_anchor;
 use crate::expressions::parser::stringify::{
     to_localized_string, to_string_displaced, DisplaceData,
 };
+use crate::expressions::parser::Node;
 use crate::expressions::parser::Parser as ExprParser;
 use crate::expressions::types::CellReferenceRC;
 use crate::expressions::utils;
@@ -404,6 +407,39 @@ impl<'a> Model<'a> {
         Ok(())
     }
 
+    /// Moves the references of defined names with the cells they point to:
+    /// `Totals` keeps naming the same cells after rows are inserted above them.
+    fn displace_defined_names(&mut self, displace_data: &DisplaceData) {
+        if self.workbook.defined_names.is_empty() {
+            return;
+        }
+        let context = self.defined_name_context();
+        let locale = get_default_locale();
+        let language = get_default_language();
+        let mut changed = false;
+        for index in 0..self.workbook.defined_names.len() {
+            let formula = self.workbook.defined_names[index].formula.clone();
+            let (prefix, body) = match formula.strip_prefix('=') {
+                Some(body) => ("=", body),
+                None => ("", formula.as_str()),
+            };
+            let node = self.parse_internal_formula(body, &context);
+            if matches!(node, Node::ParseErrorKind { .. }) {
+                continue;
+            }
+            let before = to_localized_string(&node, &context, locale, language);
+            let after = to_string_displaced(&node, &context, displace_data, locale, language);
+            if before != after {
+                self.workbook.defined_names[index].formula = format!("{prefix}{after}");
+                changed = true;
+            }
+        }
+        if changed {
+            self.parsed_defined_names = HashMap::new();
+            self.parse_defined_names();
+        }
+    }
+
     /// Updates the `range` field and formula fields of every CF rule on `sheet` according to `displace_data`.
     fn displace_cf_ranges(&mut self, sheet: u32, displace_data: &DisplaceData) {
         let count = match self.workbook.worksheets.get(sheet as usize) {
@@ -689,6 +725,7 @@ impl<'a> Model<'a> {
         };
         self.displace_cells(&disp)?;
         self.displace_cf_ranges(sheet, &disp);
+        self.displace_defined_names(&disp);
 
         // In the list of columns:
         // * Keep all the columns to the left
@@ -818,6 +855,7 @@ impl<'a> Model<'a> {
         };
         self.displace_cells(&disp)?;
         self.displace_cf_ranges(sheet, &disp);
+        self.displace_defined_names(&disp);
         let worksheet = &mut self.workbook.worksheet_mut(sheet)?;
 
         // deletes all the column styles
@@ -1094,6 +1132,7 @@ impl<'a> Model<'a> {
         };
         self.displace_cells(&disp)?;
         self.displace_cf_ranges(sheet, &disp);
+        self.displace_defined_names(&disp);
 
         Ok(())
     }
@@ -1203,6 +1242,7 @@ impl<'a> Model<'a> {
         };
         self.displace_cells(&disp)?;
         self.displace_cf_ranges(sheet, &disp);
+        self.displace_defined_names(&disp);
         Ok(())
     }
 
@@ -1360,6 +1400,7 @@ impl<'a> Model<'a> {
         };
         self.displace_cells(&disp)?;
         self.displace_cf_ranges(sheet, &disp);
+        self.displace_defined_names(&disp);
         Ok(())
     }
 
@@ -1507,6 +1548,7 @@ impl<'a> Model<'a> {
         let disp = DisplaceData::RowMove { sheet, row, delta };
         self.displace_cells(&disp)?;
         self.displace_cf_ranges(sheet, &disp);
+        self.displace_defined_names(&disp);
         Ok(())
     }
 

@@ -2,7 +2,7 @@ use chrono::Datelike;
 
 use crate::{
     locale::Locale,
-    number_format::{parse_finite_number, to_precision},
+    number_format::{parse_finite_number, round_decimals_half_away, to_precision},
 };
 
 use super::{
@@ -458,6 +458,10 @@ pub fn format_number(value_original: f64, format: &str, locale: &Locale) -> Form
                     value_abs = value.abs();
                 }
             }
+            if !p.is_scientific {
+                // Half away from zero, like Excel: 0.125 at two decimals is 0.13.
+                value_abs = round_decimals_half_away(value_abs, p.precision);
+            }
             let l_exp = exponent_part.len() as i32;
             let int_number = if p.precision == 0 {
                 value_abs.round()
@@ -480,8 +484,10 @@ pub fn format_number(value_original: f64, format: &str, locale: &Locale) -> Form
             let group_sizes = locale.numbers.decimal_formats.standard.to_owned();
             let group_separator = symbols.group.to_owned();
             let decimal_separator = symbols.decimal.to_owned();
-            // There probably are better ways to check if a number at a given precision is negative :/
-            let is_negative = value < -(10.0_f64.powf(-(p.precision as f64)));
+            // Negative when the shown digits are not all zero: -0.5 at no decimals
+            // shows as -1 (rounded half away from zero), -0.004 at two as 0.00.
+            let is_negative =
+                value < 0.0 && (value.abs() * 10.0_f64.powi(p.precision)).round() != 0.0;
             let mut needs_period = false;
 
             for token in tokens {
