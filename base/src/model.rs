@@ -3691,7 +3691,13 @@ impl<'a> Model<'a> {
             if let Node::ParseErrorKind { .. } = node {
                 node = self.parse_internal_formula(formula_body, &dummy_ref);
             }
-            if matches!(node, Node::ParseErrorKind { .. }) {
+            // A reference that `parse_reference_formula` did not take (relative,
+            // or without a sheet) stays invalid, as before; any other formula,
+            // a constant included, is accepted.
+            if matches!(
+                node,
+                Node::ParseErrorKind { .. } | Node::ReferenceKind { .. } | Node::RangeKind { .. }
+            ) {
                 return Err("Formula: Invalid defined name formula".to_string());
             }
         }

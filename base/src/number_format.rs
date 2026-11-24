@@ -153,10 +153,13 @@ pub fn to_excel_precision(value: f64, precision: usize) -> f64 {
 /// binary value half to even, which shows 2.5 as 2.
 pub(crate) fn round_significant_half_away(value: f64, precision: usize) -> f64 {
     let keep = precision.max(1);
-    let fifteen = format!("{:.14e}", value);
     if keep >= 15 {
-        return fifteen.parse::<f64>().unwrap_or(value);
+        // Beyond the digits Excel keeps there is nothing to round half away.
+        return format!("{:.*e}", keep - 1, value)
+            .parse::<f64>()
+            .unwrap_or(value);
     }
+    let fifteen = format!("{:.14e}", value);
     let Some((mantissa, exponent)) = fifteen.split_once('e') else {
         return value;
     };
@@ -219,7 +222,7 @@ pub(crate) fn round_decimals_half_away(value: f64, decimals: i32) -> f64 {
         .unwrap_or(0);
     let significant = decimals + exponent + 1;
     if significant >= 15 {
-        return fifteen.parse::<f64>().unwrap_or(value);
+        return value;
     }
     if significant <= 0 {
         if significant == 0 {

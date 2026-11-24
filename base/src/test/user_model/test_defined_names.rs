@@ -103,9 +103,12 @@ fn delete_sheet() {
 
     model.delete_sheet(0).unwrap();
 
+    // The name now points into a deleted sheet. Like Excel, a formula that
+    // uses it shows #REF! (it showed #NAME? while names could only be plain
+    // references or LAMBDAs).
     assert_eq!(
         model.get_formatted_cell_value(0, 2, 1),
-        Ok("#NAME?".to_string())
+        Ok("#REF!".to_string())
     );
 
     assert_eq!(

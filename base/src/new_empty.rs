@@ -148,7 +148,9 @@ impl<'a> Model<'a> {
                     Node::LambdaDefKind { parameters, body } => {
                         ParsedDefinedName::LambdaDefinition(parameters, *body)
                     }
-                    Node::ParseErrorKind { .. } => ParsedDefinedName::InvalidDefinedNameFormula,
+                    Node::ParseErrorKind { .. }
+                    | Node::ReferenceKind { .. }
+                    | Node::RangeKind { .. } => ParsedDefinedName::InvalidDefinedNameFormula,
                     formula => ParsedDefinedName::Formula(formula),
                 }
             };
